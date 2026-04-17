@@ -119,7 +119,7 @@ Funções tipadas com:
 
 | Rota | Chamada upstream | Notas |
 |---|---|---|
-| `GET /api/conversations` | `GET /conversations?filter[stages]=<ids>&filter[opened]=true&take=200` | stages vindos do cache de pipeline |
+| `GET /api/conversations` | `GET /conversations?filter[stages]=<ids>&filter[opened]=true&take=200` | `filter[opened]=true` é a fonte canônica de "conversa aberta" (sem re-filtragem client-side); `stages` vêm do cache de pipeline |
 | `GET /api/deals?from&to` | `GET /businesses?filter[status]=in_process&filter[createdAtGreaterOrEqual]=<from>&filter[createdAtLessOrEqual]=<to>&take=500` | pagina até 5 páginas (2500 deals), filtra em memória por `stageId ∈ pipeline` |
 | `GET /api/pipeline-stages` | `GET /pipelines/{PIPELINE_ID}/stages` | cache em memória TTL 5min |
 
@@ -215,7 +215,7 @@ O servidor retorna já com `level` e `minutosParada` calculados — cliente só 
 ┌──────────────────────────────────────────────────────────┐
 │  [Monitor] [Funil]                                       │
 ├──────────────────────────────────────────────────────────┤
-│  Período: [Hoje▾] [Semana] [Mês] [Custom]   47 leads    │
+│  Período: [Hoje▾] [7 dias] [Mês] [Custom]    47 leads   │
 ├──────────────────────────────────────────────────────────┤
 │  ┌─ Qualificação ──────────────┐  18 leads               │
 │  │ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│  Tempo médio: 2d 4h     │
@@ -273,6 +273,7 @@ Clicando numa etapa, expande tabela dos deals:
 5. `> 500` deals: paginação server-side, max 5 páginas, warning se atingir teto
 6. Cálculo de tempo é server-side, protege contra clock drift do cliente
 7. Atendente deletado (ID não resolve) → mostra "Atendente removido"
+8a. Conversa sem atendente (`attendants` vazio) → mostra "Sem atendente" (ainda aparece na lista se atingir o threshold)
 8. Autoplay policy bloqueia som → banner "Clique pra ativar sons"
 
 ## 10. Security
@@ -302,6 +303,7 @@ Mock de `api.g1.datacrazy.io`:
 - DC 401 → nosso endpoint retorna 503
 - Sem sessão Supabase → 401
 - `/api/deals` agrega multi-página
+- `/api/deals` no teto de 5 páginas emite warning no log (edge case #5 da Seção 9)
 
 ### E2E (Playwright, 1 fluxo)
 
