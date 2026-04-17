@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "user:create": "tsx --env-file=.env.local scripts/create-user.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
