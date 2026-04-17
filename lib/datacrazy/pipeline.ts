@@ -14,6 +14,23 @@ export async function getStages(): Promise<DCPipelineStage[]> {
   });
 }
 
+export async function getPipelineName(): Promise<string> {
+  const pid = PIPELINE_ID();
+  return cached(`pipeline-name:${pid}`, 10 * 60_000, async () => {
+    const res = await dcFetch<{ name?: string }>(`/pipelines/${pid}`);
+    return res.name ?? "Pipeline";
+  });
+}
+
+export async function getInstanceName(): Promise<string | null> {
+  const id = process.env.INSTANCE_ID;
+  if (!id) return null;
+  return cached(`instance-name:${id}`, 10 * 60_000, async () => {
+    const res = await dcFetch<{ name?: string }>(`/instances/${id}`);
+    return res.name ?? "Canal";
+  });
+}
+
 export function handleDCError(err: unknown) {
   if (err instanceof DataCrazyError) {
     const status = err.code === "UNAUTHORIZED" ? 503 :
