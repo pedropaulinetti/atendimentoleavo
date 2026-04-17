@@ -1,12 +1,12 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { SummaryBadges } from "./SummaryBadges";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { CheckCircle2 } from "lucide-react";
+import { BigStat } from "@/components/shared/BigStat";
+import { AlertCircle, AlertTriangle, CheckCircle2, Clock, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Conversation {
@@ -92,10 +92,41 @@ export function ConversationList({ soundEnabled }: { soundEnabled: boolean }) {
     yellow: data.conversations.filter(c => c.level === "amarelo").length,
     green: data.conversations.filter(c => c.level === "verdeAlerta").length,
   };
+  const total = counts.red + counts.yellow + counts.green;
+  const updatedLabel = new Date(data.updatedAt).toLocaleTimeString("pt-BR");
 
   return (
     <div className="space-y-4">
-      <SummaryBadges {...counts} updatedAt={data.updatedAt} />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <BigStat
+          label="Em alerta"
+          value={total}
+          sublabel={`atualizado ${updatedLabel}`}
+          icon={MessageSquare}
+          tone="default"
+        />
+        <BigStat
+          label="Críticas"
+          value={counts.red}
+          sublabel="> 30 min sem resposta"
+          icon={AlertCircle}
+          tone="red"
+        />
+        <BigStat
+          label="Atenção"
+          value={counts.yellow}
+          sublabel="10 a 30 min"
+          icon={AlertTriangle}
+          tone="amber"
+        />
+        <BigStat
+          label="Verde-alerta"
+          value={counts.green}
+          sublabel="3 a 10 min"
+          icon={Clock}
+          tone="emerald"
+        />
+      </div>
       {data.conversations.length === 0 ? (
         <Card className="p-12 text-center">
           <div className="flex flex-col items-center gap-3">

@@ -8,7 +8,8 @@ import { DealsDrawer } from "./DealsDrawer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { InboxIcon, AlertTriangle } from "lucide-react";
+import { BigStat } from "@/components/shared/BigStat";
+import { InboxIcon, AlertTriangle, Users, Clock, AlertCircle, TrendingUp } from "lucide-react";
 
 interface StageData {
   stage: { id: string; name: string; index: number; color?: string };
@@ -54,19 +55,53 @@ export function StageList() {
   const sorted = [...data.stages].sort((a, b) => a.stage.index - b.stage.index);
   const openStage = sorted.find(s => s.stage.id === openStageId);
 
+  const totalStuck = data.stages.reduce((sum, s) => sum + s.metrics.stuckCount, 0);
+  const totalStageAge = data.stages.reduce(
+    (acc, s) => ({ sum: acc.sum + s.metrics.avgTimeInStageMs * s.metrics.count, n: acc.n + s.metrics.count }),
+    { sum: 0, n: 0 }
+  );
+  const avgDays = totalStageAge.n > 0 ? totalStageAge.sum / totalStageAge.n / 86_400_000 : 0;
+  const activeStages = data.stages.filter(s => s.metrics.count > 0).length;
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-zinc-500">
-          <span className="font-semibold text-zinc-900 tabular-nums">{data.total}</span> leads no período
-        </span>
-        {data.truncated && (
-          <Badge variant="outline" className="gap-1.5 border-amber-200 bg-amber-50 text-amber-700">
-            <AlertTriangle className="size-3.5" />
-            Exibindo apenas 2500 leads (truncado)
-          </Badge>
-        )}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <BigStat
+          label="Leads no período"
+          value={data.total}
+          sublabel={`${activeStages} etapas ativas`}
+          icon={Users}
+          tone="blue"
+        />
+        <BigStat
+          label="Parados > 7 dias"
+          value={totalStuck}
+          sublabel="em alguma etapa"
+          icon={AlertCircle}
+          tone={totalStuck > 0 ? "red" : "default"}
+        />
+        <BigStat
+          label="Tempo médio"
+          value={avgDays > 0 ? `${avgDays.toFixed(1)}d` : "—"}
+          sublabel="por lead nas etapas"
+          icon={Clock}
+          tone="default"
+        />
+        <BigStat
+          label="Etapas"
+          value={data.stages.length}
+          sublabel={`${activeStages} com leads`}
+          icon={TrendingUp}
+          tone="default"
+        />
       </div>
+
+      {data.truncated && (
+        <Badge variant="outline" className="gap-1.5 border-amber-200 bg-amber-50 text-amber-700">
+          <AlertTriangle className="size-3.5" />
+          Exibindo apenas 2500 leads (truncado)
+        </Badge>
+      )}
 
       {sorted.length === 0 ? (
         <Card className="p-12 text-center">
