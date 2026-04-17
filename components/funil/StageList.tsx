@@ -8,7 +8,7 @@ import { DealsDrawer } from "./DealsDrawer";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface StageData {
-  stage: { id: string; name: string; order: number };
+  stage: { id: string; name: string; index: number };
   metrics: { count: number; avgTimeInStageMs: number; stuckCount: number };
   deals: { id: string; name: string; createdAt: string; lastMovedAt: string | null; value: number | null }[];
 }
@@ -38,7 +38,7 @@ export function StageList() {
   if (!data) return null;
 
   const maxCount = Math.max(1, ...data.stages.map(s => s.metrics.count));
-  const sorted = [...data.stages].sort((a, b) => a.stage.order - b.stage.order);
+  const sorted = [...data.stages].sort((a, b) => a.stage.index - b.stage.index);
 
   const openStage = sorted.find(s => s.stage.id === openStageId);
 

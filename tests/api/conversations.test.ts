@@ -26,10 +26,10 @@ describe("GET /api/conversations", () => {
   it("returns enriched, sorted list excluding ok/respondida", async () => {
     server.use(
       http.get("https://api.g1.datacrazy.io/api/v1/pipelines/p1/stages",
-        () => HttpResponse.json({ data: [{ id: "s1", name: "A", order: 1, pipelineId: "p1" }] })),
+        () => HttpResponse.json({ data: [{ id: "s1", name: "A", index: 0 }] })),
       http.get("https://api.g1.datacrazy.io/api/v1/conversations",
         () => HttpResponse.json({ data: [
-          { id: "c-red", isGroup: false, name: "Red", attendants: [{ id: "u1" }],
+          { id: "c-red", isGroup: false, name: "Red", attendants: [{ id: "u1", name: "Ana" }],
             currentDepartment: { id: "d1", name: "Vendas", color: "#f00" },
             lastReceivedMessageDate: new Date(Date.now() - 40 * 60_000).toISOString(),
             lastSendedMessageDate: null },
@@ -38,8 +38,6 @@ describe("GET /api/conversations", () => {
             lastReceivedMessageDate: new Date(Date.now() - 1 * 60_000).toISOString(),
             lastSendedMessageDate: null },
         ] })),
-      http.get("https://api.g1.datacrazy.io/api/v1/users",
-        () => HttpResponse.json({ data: [{ id: "u1", name: "Ana" }] }))
     );
     const { GET } = await import("@/app/api/conversations/route");
     const res = await GET();

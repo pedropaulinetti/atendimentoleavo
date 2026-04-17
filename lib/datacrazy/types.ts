@@ -11,10 +11,10 @@ export interface DCConversation {
   id: string;
   isGroup: boolean;
   name: string;
-  lastReceivedMessageDate: string | null;
-  lastSendedMessageDate: string | null;
-  attendants: Array<{ id: string }>;
-  currentDepartment: { id: string; name: string; color: string } | null;
+  lastReceivedMessageDate?: string | null;
+  lastSendedMessageDate?: string | null;
+  attendants: Array<{ id: string; userId?: string; name?: string; email?: string }>;
+  currentDepartment?: { id: string; name: string; color: string } | null;
   contact?: { externalInfo?: { pipelineIds?: string[]; stageIds?: string[] } };
 }
 
@@ -31,8 +31,8 @@ export interface DCDeal {
 export interface DCPipelineStage {
   id: string;
   name: string;
-  order: number;
-  pipelineId: string;
+  index: number;
+  color?: string;
 }
 
 export interface DCUser {

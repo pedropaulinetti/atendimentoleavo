@@ -31,7 +31,7 @@ describe("GET /api/deals", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     server.use(
       http.get("https://api.g1.datacrazy.io/api/v1/pipelines/p1/stages",
-        () => HttpResponse.json({ data: [{ id: "s1", name: "A", order: 1, pipelineId: "p1" }] })),
+        () => HttpResponse.json({ data: [{ id: "s1", name: "A", index: 0 }] })),
       http.get("https://api.g1.datacrazy.io/api/v1/businesses",
         () => HttpResponse.json({ count: 9999, data: Array.from({ length: 500 }, (_, i) => makeDeal(i)) })),
     );

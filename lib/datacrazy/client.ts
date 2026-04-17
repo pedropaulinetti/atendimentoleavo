@@ -11,6 +11,21 @@ function mapError(status: number): DataCrazyError {
   return new DataCrazyError("UNKNOWN", status, `HTTP ${status}`);
 }
 
+function appendParam(sp: URLSearchParams, key: string, value: unknown) {
+  if (value === undefined || value === null) return;
+  if (Array.isArray(value)) {
+    for (const item of value) appendParam(sp, key, item);
+    return;
+  }
+  if (typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      appendParam(sp, `${key}[${k}]`, v);
+    }
+    return;
+  }
+  sp.append(key, String(value));
+}
+
 async function doFetch(url: string, init: RequestInit) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
@@ -28,9 +43,7 @@ export async function dcFetch<T = unknown>(
 
   const url = new URL(BASE + path);
   if (params) for (const [k, v] of Object.entries(params)) {
-    if (v === undefined || v === null) continue;
-    if (typeof v === "object") url.searchParams.set(k, JSON.stringify(v));
-    else url.searchParams.set(k, String(v));
+    appendParam(url.searchParams, k, v);
   }
 
   const init: RequestInit = {
