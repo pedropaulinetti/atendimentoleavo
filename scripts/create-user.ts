@@ -15,11 +15,15 @@ if (!url || !key) {
 
 const supabase = createClient(url, key);
 
-const { data, error } = await supabase.auth.admin.createUser({
-  email,
-  password,
-  email_confirm: true,
-});
+async function main() {
+  const { data, error } = await supabase.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  });
 
-if (error) { console.error(error); process.exit(1); }
-console.log("Usuário criado:", data.user?.email);
+  if (error) { console.error(error); process.exit(1); }
+  console.log("Usuário criado:", data.user?.email);
+}
+
+main();
