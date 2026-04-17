@@ -759,6 +759,12 @@ describe("resolveDateRangePreset", () => {
     expect(r.to).toBe("2026-04-17T23:59:59.999Z");
   });
 
+  it("30d = last 30 days ending today", () => {
+    const r = resolveDateRangePreset("30d", ref);
+    expect(r.from).toBe("2026-03-18T00:00:00.000Z");
+    expect(r.to).toBe("2026-04-17T23:59:59.999Z");
+  });
+
   it("month = current month", () => {
     const r = resolveDateRangePreset("month", ref);
     expect(r.from).toBe("2026-04-01T00:00:00.000Z");
@@ -803,17 +809,24 @@ export function computeStageMetrics(deals: DCDeal[], now: number): StageMetrics 
 - [ ] **Step 5: Implement `lib/funil/dateRange.ts`**
 
 ```ts
-export type DatePreset = "today" | "week" | "month" | "custom";
+export type DatePreset = "today" | "week" | "30d" | "month" | "custom";
 export interface DateRange { from: string; to: string; }
 
 function startOfDay(d: Date) { const x = new Date(d); x.setUTCHours(0,0,0,0); return x; }
 function endOfDay(d: Date) { const x = new Date(d); x.setUTCHours(23,59,59,999); return x; }
 
-export function resolveDateRangePreset(p: Exclude<DatePreset, "custom">, ref = new Date()): DateRange {
+export function resolveDateRangePreset(
+  p: Exclude<DatePreset, "custom">,
+  ref = new Date(),
+): DateRange {
   const to = endOfDay(ref).toISOString();
   if (p === "today") return { from: startOfDay(ref).toISOString(), to };
   if (p === "week") {
     const d = new Date(ref); d.setUTCDate(d.getUTCDate() - 7);
+    return { from: startOfDay(d).toISOString(), to };
+  }
+  if (p === "30d") {
+    const d = new Date(ref); d.setUTCDate(d.getUTCDate() - 30);
     return { from: startOfDay(d).toISOString(), to };
   }
   const d = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), 1));
@@ -1432,29 +1445,33 @@ import { resolveDateRangePreset } from "@/lib/funil/dateRange";
 export function DateRangePicker() {
   const router = useRouter();
   const sp = useSearchParams();
-  const current = sp.get("preset") ?? "week";
+  const current = sp.get("preset") ?? "30d";
 
-  function setPreset(p: "today" | "week" | "month") {
+  function setPreset(p: "today" | "week" | "30d" | "month") {
     const r = resolveDateRangePreset(p);
     const q = new URLSearchParams({ preset: p, from: r.from, to: r.to });
     router.push(`/funil?${q.toString()}`);
   }
 
+  const LABELS = { today: "Hoje", week: "7 dias", "30d": "30 dias", month: "Mês" };
+
   return (
     <div className="flex gap-2">
-      {(["today", "week", "month"] as const).map(p => (
+      {(["today", "week", "30d", "month"] as const).map(p => (
         <Button
           key={p}
           variant={current === p ? "default" : "outline"}
           size="sm"
           onClick={() => setPreset(p)}
         >
-          {p === "today" ? "Hoje" : p === "week" ? "7 dias" : "Mês"}
+          {LABELS[p]}
         </Button>
       ))}
     </div>
   );
 }
+
+// Note: spec mentions "Custom" range — deferred to v2 (react-day-picker already installed if needed).
 ```
 
 - [ ] **Step 2: `components/funil/StageBar.tsx`**
@@ -1508,7 +1525,7 @@ interface StageData {
 
 export function StageList() {
   const sp = useSearchParams();
-  const preset = (sp.get("preset") ?? "week") as "today"|"week"|"month";
+  const preset = (sp.get("preset") ?? "30d") as "today"|"week"|"30d"|"month";
   const range = resolveDateRangePreset(preset);
   const from = sp.get("from") ?? range.from;
   const to = sp.get("to") ?? range.to;
@@ -1880,13 +1897,21 @@ pnpm dlx vercel@latest env add SUPABASE_SERVICE_ROLE_KEY production
 pnpm dlx vercel@latest --prod
 ```
 
-- [ ] **Step 3: Smoke test na URL de produção**
+- [ ] **Step 3: Substituir som placeholder**
+
+Arquivo `public/sounds/alert.mp3` precisa ser um bipe real (~400ms). Sugestões:
+- Gerar em https://onlinetonegenerator.com/ (800Hz, 400ms, export MP3)
+- Ou baixar de https://pixabay.com/sound-effects/search/beep/
+- Commit o arquivo: `git add public/sounds/alert.mp3 && git commit -m "chore: add real alert sound"`
+
+- [ ] **Step 4: Smoke test na URL de produção**
   - Login OK?
   - `/monitor` carrega?
-  - `/funil` carrega?
-  - Som toca (após clicar pra ativar)?
+  - `/funil` carrega com preset default "30 dias"?
+  - Som toca (após clicar "Ativar sons" e quando uma conversa vira vermelha)?
+  - Header tem `X-Frame-Options: DENY` (checar via `curl -I`)?
 
-- [ ] **Step 4: Final commit**
+- [ ] **Step 5: Final commit**
 
 ```bash
 git add README.md && git commit -m "docs: README + deploy instructions"
