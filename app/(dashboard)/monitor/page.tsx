@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { ConversationList } from "@/components/monitor/ConversationList";
 import { Button } from "@/components/ui/button";
+import { BellRing, Volume2, VolumeX } from "lucide-react";
 
 export default function MonitorPage() {
   const [soundEnabled, setSoundEnabled] = useState(false);
@@ -16,13 +17,25 @@ export default function MonitorPage() {
   const toggle = () => { const v = !soundEnabled; setSoundEnabled(v); localStorage.setItem("monitor-sound", v ? "on" : "off"); };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Monitor de conversas paradas</h1>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Monitor de conversas</h1>
+          <p className="mt-0.5 text-sm text-zinc-500">Conversas paradas aguardando resposta</p>
+        </div>
         {!activated ? (
-          <Button onClick={activate} variant="outline">Clique para ativar sons</Button>
+          <Button onClick={activate} variant="outline" size="sm" className="gap-2">
+            <BellRing className="size-4" />
+            Ativar alertas sonoros
+          </Button>
         ) : (
-          <Button onClick={toggle} variant="outline">{soundEnabled ? "🔔 Som ligado" : "🔕 Mutado"}</Button>
+          <Button onClick={toggle} variant="outline" size="sm" className="gap-2">
+            {soundEnabled ? (
+              <><Volume2 className="size-4" /> Som ligado</>
+            ) : (
+              <><VolumeX className="size-4" /> Mutado</>
+            )}
+          </Button>
         )}
       </div>
       <ConversationList soundEnabled={soundEnabled} />

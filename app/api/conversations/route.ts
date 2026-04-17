@@ -11,11 +11,16 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 
   try {
+    const INSTANCE_ID = process.env.INSTANCE_ID;
     const stages = await getStages();
     const stageIds = stages.map(s => s.id).join(",");
     const res = await dcFetch<{ data: DCConversation[] }>("/conversations", {
       take: 200,
-      filter: { stages: stageIds, opened: true },
+      filter: {
+        stages: stageIds,
+        opened: true,
+        ...(INSTANCE_ID ? { instances: INSTANCE_ID } : {}),
+      },
     });
     const now = Date.now();
 
