@@ -93,6 +93,24 @@ create index on funil_snapshots (captured_at desc);
 - `select` permitido a `authenticated`.
 - `insert` / `update` / `delete` bloqueados pra qualquer role que não seja `service_role`. Escrita vem exclusivamente dos cron endpoints usando service role.
 
+Policies da migration (aplicar nas duas tabelas):
+
+```sql
+alter table monitor_snapshots enable row level security;
+create policy "monitor_snapshots_select_authenticated"
+  on monitor_snapshots for select
+  to authenticated
+  using (true);
+-- sem policies de insert/update/delete → negado por padrão pra authenticated;
+-- service_role bypassa RLS e continua podendo escrever.
+
+alter table funil_snapshots enable row level security;
+create policy "funil_snapshots_select_authenticated"
+  on funil_snapshots for select
+  to authenticated
+  using (true);
+```
+
 ## 5. Architecture
 
 ```
@@ -243,7 +261,7 @@ Agregação dentro do bucket:
 - **Supabase insert falha:** endpoint retorna 500, mesma consequência.
 - **Range inválido em `/api/metrics/history`:** 400.
 - **Source inválido:** 400.
-- **Sem snapshots no range** (ex: pós-deploy recente): endpoint retorna `{ points: [], downsampled: false, sourceCount: 0 }`. UI mostra card "Histórico começando a ser coletado, volte em ~15 min".
+- **Sem snapshots no range** (pós-deploy recente, cron parado, Data Crazy indisponível por muito tempo): endpoint retorna `{ points: [], downsampled: false, sourceCount: 0 }`. UI mostra card neutro: "Ainda não há dados históricos para este período."
 
 ## 10. Testing strategy
 
@@ -268,7 +286,7 @@ CRON_SECRET=<random 32 bytes>         # valida requests do Vercel Cron
 # SUPABASE_SERVICE_ROLE_KEY já existe — agora também usada pelo cron
 ```
 
-`.env.local.example` atualizado. README atualizado explicando como gerar.
+`.env.local.example` atualizado. README atualizado explicando como gerar. `SUPABASE_SERVICE_ROLE_KEY` já existe no projeto (hoje só usada por `scripts/create-user.ts`), mas precisa estar configurada também no **ambiente de produção da Vercel** — antes era um script de linha de comando, agora é dependência de runtime dos endpoints de cron.
 
 **`vercel.json`:**
 
@@ -290,7 +308,7 @@ Rota: `app/(dashboard)/historico/page.tsx`. Protegida pelo middleware existente.
 Layout:
 
 - Título + subtítulo.
-- Toggle de range (`RangeToggle`): 24h / 7d / 30d / 90d. Estado mantido em query param `?range=7d`.
+- Toggle de range (`RangeToggle`): 24h / 7d / 30d / 90d. Estado mantido em query param `?range=7d`. **Default sem query param: `7d`.**
 - Seção **Monitor**:
   - `MonitorTrendChart`: area chart empilhado (críticas vermelho, atenção âmbar, verde).
   - `MonitorTimingCharts`: grid 2 colunas com line chart de `avgMinutos` e `maxMinutos`.
