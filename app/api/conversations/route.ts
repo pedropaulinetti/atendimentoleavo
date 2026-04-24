@@ -1,37 +1,76 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { fetchAndMapDCConversations, handleDCError } from "@/lib/datacrazy/mapper";
-import type { Conversation } from "@/lib/monitor/types";
+import { fetchAndMapDCConversations } from "@/lib/datacrazy/mapper";
+import { fetchAndMapIntercomConversations } from "@/lib/intercom/mapper";
+import type { Conversation, ConversationSource } from "@/lib/monitor/types";
+import { DataCrazyError } from "@/lib/datacrazy/types";
+import { IntercomError } from "@/lib/intercom/types";
+
+function errorCode(err: unknown): string {
+  if (err instanceof DataCrazyError || err instanceof IntercomError) {
+    return err.code.toLowerCase();
+  }
+  return "unknown";
+}
 
 export async function GET() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 
-  try {
-    const now = Date.now();
-    const conversations: Conversation[] = (await fetchAndMapDCConversations(now))
-      .sort((a, b) => a.minutosParada - b.minutosParada);
+  const now = Date.now();
+  const icEnabled = process.env.INTERCOM_ENABLED === "true";
 
-    const avgMinutos = conversations.length
-      ? conversations.reduce((s, c) => s + c.minutosParada, 0) / conversations.length
-      : 0;
-    const maxMinutos = conversations.length
-      ? Math.max(...conversations.map(c => c.minutosParada))
-      : 0;
+  const [dcResult, icResult] = await Promise.allSettled([
+    fetchAndMapDCConversations(now),
+    icEnabled ? fetchAndMapIntercomConversations(now) : Promise.resolve([] as Conversation[]),
+  ]);
 
-    const byDepartmentMap = new Map<string, { name: string; color: string; count: number }>();
-    for (const c of conversations) {
-      const key = c.departmentName;
-      const hit = byDepartmentMap.get(key);
-      if (hit) hit.count += 1;
-      else byDepartmentMap.set(key, { name: c.departmentName, color: c.departmentColor, count: 1 });
+  const sourceErrors: Partial<Record<ConversationSource, string>> = {};
+  const conversations: Conversation[] = [];
+
+  if (dcResult.status === "fulfilled") conversations.push(...dcResult.value);
+  else {
+    sourceErrors.datacrazy = errorCode(dcResult.reason);
+    console.warn("[conversations] datacrazy failed", dcResult.reason);
+  }
+
+  if (icEnabled) {
+    if (icResult.status === "fulfilled") conversations.push(...icResult.value);
+    else {
+      sourceErrors.intercom = errorCode(icResult.reason);
+      console.warn("[conversations] intercom failed", icResult.reason);
     }
-    const byDepartment = Array.from(byDepartmentMap.values()).sort((a, b) => b.count - a.count);
+  }
 
-    return NextResponse.json({
-      conversations, updatedAt: new Date().toISOString(),
-      stats: { avgMinutos, maxMinutos, byDepartment },
-    });
-  } catch (err) { return handleDCError(err); }
+  // 503 when all enabled sources failed
+  const allFailed = dcResult.status === "rejected" && (!icEnabled || icResult.status === "rejected");
+  if (conversations.length === 0 && allFailed) {
+    return NextResponse.json({ error: "ALL_SOURCES_FAILED", sourceErrors }, { status: 503 });
+  }
+
+  conversations.sort((a, b) => a.minutosParada - b.minutosParada);
+
+  const avgMinutos = conversations.length
+    ? conversations.reduce((s, c) => s + c.minutosParada, 0) / conversations.length
+    : 0;
+  const maxMinutos = conversations.length
+    ? Math.max(...conversations.map(c => c.minutosParada))
+    : 0;
+
+  const byDepartmentMap = new Map<string, { name: string; color: string; count: number }>();
+  for (const c of conversations) {
+    const key = c.departmentName;
+    const hit = byDepartmentMap.get(key);
+    if (hit) hit.count += 1;
+    else byDepartmentMap.set(key, { name: c.departmentName, color: c.departmentColor, count: 1 });
+  }
+  const byDepartment = Array.from(byDepartmentMap.values()).sort((a, b) => b.count - a.count);
+
+  return NextResponse.json({
+    conversations,
+    updatedAt: new Date().toISOString(),
+    stats: { avgMinutos, maxMinutos, byDepartment },
+    sourceErrors: Object.keys(sourceErrors).length > 0 ? sourceErrors : undefined,
+  });
 }
