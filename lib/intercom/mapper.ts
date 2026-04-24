@@ -66,16 +66,21 @@ export async function fetchAndMapIntercomConversations(now: number): Promise<Con
     getTeamsById(),
   ]);
 
+  const PER_PAGE = 150;
   const search = await icFetch<{ conversations: ICConversation[] }>(
     "POST",
     "/conversations/search",
     {
       query: { field: "state", operator: "=", value: "open" },
-      pagination: { per_page: 150 },
+      pagination: { per_page: PER_PAGE },
     },
   );
 
-  const opens = search.conversations.filter(c => c.state === "open");
+  const rawConversations = search.conversations ?? [];
+  if (rawConversations.length >= PER_PAGE) {
+    console.warn(`[intercom] search returned ${rawConversations.length} open convs (cap ${PER_PAGE}); pagination not yet implemented — some conversations may be hidden`);
+  }
+  const opens = rawConversations.filter(c => c.state === "open");
 
   const groupB = opens.filter(c => {
     const lcr = c.statistics.last_contact_reply_at;

@@ -8,15 +8,13 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { BigStat } from "@/components/shared/BigStat";
 import { AlertCircle, AlertTriangle, CheckCircle2, Clock, MessageSquare, Timer, Hourglass, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { Conversation as SharedConversation } from "@/lib/monitor/types";
 
-interface Conversation {
-  id: string; source: "datacrazy" | "intercom";
-  name: string; level: "vermelho"|"amarelo"|"verdeAlerta";
-  minutosParada: number; attendantName: string;
-  departmentName: string; departmentColor: string;
-  lastMessage: string | null;
-  externalUrl?: string;
-}
+// Narrow the shared type to the levels the UI actually renders
+// (ok/respondida are filtered out server-side).
+type Conversation = Omit<SharedConversation, "level"> & {
+  level: "vermelho" | "amarelo" | "verdeAlerta";
+};
 
 const LEVEL_CONFIG = {
   vermelho: {
@@ -257,15 +255,19 @@ export function ConversationList({ soundEnabled }: { soundEnabled: boolean }) {
         </Card>
       )}
       {data.conversations.length === 0 ? (
-        <Card className="p-12 text-center">
-          <div className="flex flex-col items-center gap-3">
-            <CheckCircle2 className="size-10 text-emerald-500" />
-            <div>
-              <p className="font-medium text-zinc-900">Tudo em dia!</p>
-              <p className="mt-1 text-sm text-zinc-500">Nenhuma conversa precisa de atenção agora.</p>
+        // Only claim "tudo em dia" when we actually heard from every source.
+        // If a source errored, the amber banner above already explains the partial view.
+        !data.sourceErrors?.datacrazy && !data.sourceErrors?.intercom ? (
+          <Card className="p-12 text-center">
+            <div className="flex flex-col items-center gap-3">
+              <CheckCircle2 className="size-10 text-emerald-500" />
+              <div>
+                <p className="font-medium text-zinc-900">Tudo em dia!</p>
+                <p className="mt-1 text-sm text-zinc-500">Nenhuma conversa precisa de atenção agora.</p>
+              </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+        ) : null
       ) : (
         <ul className="space-y-2">
           {data.conversations.map(c => (

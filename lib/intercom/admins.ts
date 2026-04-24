@@ -33,8 +33,14 @@ export async function getResolvedAdmins(): Promise<ResolvedAdmins> {
     const resolved: ResolvedAdmins = { botIds, namesById };
     cache = { value: resolved, expiresAt: Date.now() + TTL_MS };
     return resolved;
-  } catch {
+  } catch (err) {
     if (cache) return cache.value;
+    // Cold-start failure: without /admins we can't identify bots by name.
+    // If INTERCOM_BOT_ADMIN_IDS is set we're still correct; otherwise bot
+    // replies will transiently stop the timer until the next successful fetch.
+    if (envIds.length === 0) {
+      console.warn("[intercom] /admins cold-start fetch failed and INTERCOM_BOT_ADMIN_IDS is empty — bot replies will be treated as human replies this cycle", err);
+    }
     return { botIds: new Set(envIds), namesById: new Map() };
   }
 }
