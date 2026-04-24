@@ -5,7 +5,7 @@ import { computeAlertLevel } from "@/lib/monitor/severity";
 import { getStages, handleDCError } from "@/lib/datacrazy/pipeline";
 import type { DCConversation } from "@/lib/datacrazy/types";
 
-const MAX_AGE_MINUTES = 24 * 60; // 24h cap — ignore ancient abandoned conversations
+const MAX_AGE_MINUTES = 72 * 60; // 72h cap — ignore ancient abandoned conversations
 
 export async function GET() {
   const supabase = await createClient();
