@@ -4,6 +4,7 @@ Dashboard pro time de atendimento da UOS. Dois painéis:
 
 - **Monitor** — lista conversas do pipeline onde o cliente foi o último a falar e passou de 3/10/30 min sem resposta. Atualiza a cada 10s, bipe ao virar vermelho.
 - **Funil** — quantos leads em cada etapa + tempo médio + destaque pra deals parados > 7 dias. Atualiza a cada 30s.
+- **Histórico** — tendência das métricas do Monitor e do Funil ao longo do tempo (24h / 7d / 30d / 90d). Snapshots automáticos a cada 15 min via Vercel Cron, retidos por 90 dias (pruning semanal domingo 03:00 UTC).
 
 Stack: Next.js 15 + TypeScript + Tailwind + shadcn/ui + Supabase (auth) + TanStack Query + Vitest/MSW/Playwright.
 
@@ -34,7 +35,8 @@ DATACRAZY_TOKEN=dc_...                         # JWT da API Data Crazy
 PIPELINE_ID=d6635f08-506e-4504-8a4d-bb79b04c8b49  # Pipeline alvo (hardcoded)
 NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-SUPABASE_SERVICE_ROLE_KEY=eyJ...               # Só pra criar usuários (nunca exposta no cliente)
+SUPABASE_SERVICE_ROLE_KEY=eyJ...               # Usada por scripts admin + cron endpoints (nunca exposta no cliente; NUNCA prefixar com NEXT_PUBLIC_)
+CRON_SECRET=<hex-32>                           # Valida requests do Vercel Cron. Gerar: openssl rand -hex 32
 ```
 
 - `SUPABASE_URL` e `ANON_KEY`: dashboard Supabase → Project Settings → API
@@ -63,8 +65,18 @@ pnpm dlx vercel@latest env add PIPELINE_ID production
 pnpm dlx vercel@latest env add NEXT_PUBLIC_SUPABASE_URL production
 pnpm dlx vercel@latest env add NEXT_PUBLIC_SUPABASE_ANON_KEY production
 pnpm dlx vercel@latest env add SUPABASE_SERVICE_ROLE_KEY production
+pnpm dlx vercel@latest env add CRON_SECRET production
 pnpm dlx vercel@latest --prod
 ```
+
+### Histórico de métricas — setup inicial
+
+Antes do primeiro deploy com histórico:
+
+1. **Aplicar migration no Supabase**: copiar o SQL em [supabase/migrations/20260424120000_metrics_snapshots.sql](supabase/migrations/20260424120000_metrics_snapshots.sql) e executar no Supabase → SQL Editor. Cria as tabelas `monitor_snapshots` e `funil_snapshots` com RLS habilitada (select liberado pra `authenticated`, escrita só pelo service role).
+2. **Setar `CRON_SECRET`** na Vercel (Production env). `SUPABASE_SERVICE_ROLE_KEY` também precisa existir em Production — antes era só usada por script CLI, agora é dependência de runtime dos endpoints de cron.
+3. **`vercel.json`** no repo já configura 2 crons: snapshot a cada 15 min, pruning semanal.
+4. A página `/historico` fica vazia até o primeiro snapshot rodar (~15 min depois do deploy).
 
 Depois do primeiro deploy, volte no Supabase → Authentication → URL Configuration e adicione a URL da Vercel em "Redirect URLs".
 

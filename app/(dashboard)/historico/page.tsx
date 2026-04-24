@@ -1,4 +1,5 @@
 "use client";
+import { Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -34,7 +35,7 @@ interface HistoryResponse<T> {
   sourceCount: number;
 }
 
-export default function HistoricoPage() {
+function HistoricoInner() {
   const sp = useSearchParams();
   const raw = sp.get("range");
   const range: Range = VALID_RANGES.includes(raw as Range) ? (raw as Range) : "7d";
@@ -103,5 +104,21 @@ export default function HistoricoPage() {
         </>
       )}
     </div>
+  );
+}
+
+function HistoricoFallback() {
+  return (
+    <div className="space-y-3">
+      {[1, 2, 3].map(i => <Skeleton key={i} className="h-64 rounded-xl" />)}
+    </div>
+  );
+}
+
+export default function HistoricoPage() {
+  return (
+    <Suspense fallback={<HistoricoFallback />}>
+      <HistoricoInner />
+    </Suspense>
   );
 }
