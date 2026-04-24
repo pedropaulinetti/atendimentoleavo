@@ -4,8 +4,9 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
-  { href: "/monitor", label: "Monitor" },
-  { href: "/funil", label: "Funil" },
+  { href: "/monitor",   label: "Monitor" },
+  { href: "/funil",     label: "Funil" },
+  { href: "/historico", label: "Histórico" },
 ] as const;
 
 export function HeaderNav() {
