@@ -497,6 +497,8 @@ git commit -m "feat(intercom): add authenticated fetch client with error mapping
 
 - [ ] **Step 1: Write failing test**
 
+> Heads-up: Task 9 Step 3 later refactors `getBotAdminIds` into a unified resolver and **replaces the first test below** (`"returns env-configured IDs as a Set, no API call"`) with a precedence-focused version. Write it as-is for now; Task 9 handles the swap.
+
 `tests/lib/intercom-admins.test.ts`:
 ```typescript
 import { describe, it, expect, beforeEach, beforeAll, afterAll, afterEach, vi } from "vitest";
