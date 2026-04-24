@@ -46,7 +46,14 @@ export async function GET(req: NextRequest) {
     .gte("captured_at", since)
     .order("captured_at", { ascending: true });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    // Postgres 42P01 = undefined_table. Treat as "no data yet" so the UI shows
+    // the EmptyState instead of a noisy error banner before the migration runs.
+    if (error.code === "42P01") {
+      return NextResponse.json({ points: [], downsampled: false, sourceCount: 0 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   const rows = (data ?? []).map(r =>
     source === "monitor" ? toMonitorPoint(r) : toFunilPoint(r),
