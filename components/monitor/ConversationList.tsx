@@ -10,9 +10,12 @@ import { AlertCircle, AlertTriangle, CheckCircle2, Clock, MessageSquare, Timer, 
 import { cn } from "@/lib/utils";
 
 interface Conversation {
-  id: string; name: string; level: "vermelho"|"amarelo"|"verdeAlerta";
-  minutosParada: number; attendantName: string; departmentName: string; departmentColor: string;
+  id: string; source: "datacrazy" | "intercom";
+  name: string; level: "vermelho"|"amarelo"|"verdeAlerta";
+  minutosParada: number; attendantName: string;
+  departmentName: string; departmentColor: string;
   lastMessage: string | null;
+  externalUrl?: string;
 }
 
 const LEVEL_CONFIG = {
@@ -49,6 +52,56 @@ function getInitials(name: string) {
     .join("");
 }
 
+function ConversationCard({ c }: { c: Conversation }) {
+  const cfg = LEVEL_CONFIG[c.level];
+  const time = formatTimeParada(c.minutosParada);
+  return (
+    <Card
+      className={cn(
+        "flex items-center justify-between border-l-4 px-5 py-4 transition-shadow hover:shadow-md",
+        cfg.border,
+        cfg.bg,
+      )}
+    >
+      <div className="flex items-center gap-4">
+        <Avatar>
+          <AvatarFallback className="text-xs font-semibold bg-zinc-200 text-zinc-700">
+            {getInitials(c.name)}
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0 max-w-md">
+          <div className="flex items-center gap-2">
+            <p className="font-medium text-zinc-900 leading-tight truncate">{c.name}</p>
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono shrink-0">
+              {c.source === "datacrazy" ? "DC" : "IC"}
+            </Badge>
+          </div>
+          {c.lastMessage && (
+            <p className="mt-1 line-clamp-2 text-sm text-zinc-500">
+              &ldquo;{c.lastMessage}&rdquo;
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-4">
+        <div className="text-right">
+          <p className="text-2xl font-semibold tabular-nums leading-none text-zinc-900">
+            {time.value}
+          </p>
+          <p className="mt-0.5 text-xs text-zinc-500">{time.label}</p>
+        </div>
+        <Badge variant="outline" className={cn("hidden sm:inline-flex shrink-0", cfg.badge)}>
+          <span
+            className="mr-1.5 inline-block size-1.5 rounded-full"
+            style={{ backgroundColor: c.departmentColor }}
+          />
+          {c.departmentName}
+        </Badge>
+      </div>
+    </Card>
+  );
+}
+
 export function ConversationList({ soundEnabled }: { soundEnabled: boolean }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["conversations"],
@@ -63,6 +116,7 @@ export function ConversationList({ soundEnabled }: { soundEnabled: boolean }) {
           maxMinutos: number;
           byDepartment: { name: string; color: string; count: number }[];
         };
+        sourceErrors?: { datacrazy?: string; intercom?: string };
       }>;
     },
     refetchInterval: 10_000,
@@ -109,6 +163,13 @@ export function ConversationList({ soundEnabled }: { soundEnabled: boolean }) {
 
   return (
     <div className="space-y-4">
+      {(data.sourceErrors?.datacrazy || data.sourceErrors?.intercom) && (
+        <Card className="border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          {data.sourceErrors.datacrazy && !data.sourceErrors.intercom && "Data Crazy indisponível — mostrando só Intercom. Tentando novamente…"}
+          {data.sourceErrors.intercom && !data.sourceErrors.datacrazy && "Intercom indisponível — mostrando só Data Crazy. Tentando novamente…"}
+          {data.sourceErrors.datacrazy && data.sourceErrors.intercom && "Ambas as fontes indisponíveis. Tentando novamente…"}
+        </Card>
+      )}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <BigStat
           label="Em alerta"
@@ -207,59 +268,17 @@ export function ConversationList({ soundEnabled }: { soundEnabled: boolean }) {
         </Card>
       ) : (
         <ul className="space-y-2">
-          {data.conversations.map(c => {
-            const cfg = LEVEL_CONFIG[c.level];
-            const time = formatTimeParada(c.minutosParada);
-            return (
-              <li key={c.id}>
-                <Card
-                  className={cn(
-                    "flex items-center justify-between border-l-4 px-5 py-4 transition-shadow hover:shadow-md",
-                    cfg.border,
-                    cfg.bg
-                  )}
-                >
-                  <div className="flex items-center gap-4">
-                    <Avatar>
-                      <AvatarFallback className="text-xs font-semibold bg-zinc-200 text-zinc-700">
-                        {getInitials(c.name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 max-w-md">
-                      <p className="font-medium text-zinc-900 leading-tight">{c.name}</p>
-                      {c.lastMessage && (
-                        <p className="mt-1 line-clamp-2 text-sm text-zinc-500">
-                          &ldquo;{c.lastMessage}&rdquo;
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4">
-                    {/* Time parada — prominent */}
-                    <div className="text-right">
-                      <p className="text-2xl font-semibold tabular-nums leading-none text-zinc-900">
-                        {time.value}
-                      </p>
-                      <p className="mt-0.5 text-xs text-zinc-500">{time.label}</p>
-                    </div>
-
-                    {/* Department badge */}
-                    <Badge
-                      variant="outline"
-                      className={cn("hidden sm:inline-flex shrink-0", cfg.badge)}
-                    >
-                      <span
-                        className="mr-1.5 inline-block size-1.5 rounded-full"
-                        style={{ backgroundColor: c.departmentColor }}
-                      />
-                      {c.departmentName}
-                    </Badge>
-                  </div>
-                </Card>
-              </li>
-            );
-          })}
+          {data.conversations.map(c => (
+            <li key={c.id}>
+              {c.externalUrl ? (
+                <a href={c.externalUrl} target="_blank" rel="noreferrer" className="block">
+                  <ConversationCard c={c} />
+                </a>
+              ) : (
+                <ConversationCard c={c} />
+              )}
+            </li>
+          ))}
         </ul>
       )}
     </div>
