@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 interface Conversation {
   id: string; name: string; level: "vermelho"|"amarelo"|"verdeAlerta";
   minutosParada: number; attendantName: string; departmentName: string; departmentColor: string;
+  lastMessage: string | null;
 }
 
 const LEVEL_CONFIG = {
@@ -157,8 +158,13 @@ export function ConversationList({ soundEnabled }: { soundEnabled: boolean }) {
                         {getInitials(c.name)}
                       </AvatarFallback>
                     </Avatar>
-                    <div>
+                    <div className="min-w-0 max-w-md">
                       <p className="font-medium text-zinc-900 leading-tight">{c.name}</p>
+                      {c.lastMessage && (
+                        <p className="mt-1 line-clamp-2 text-sm text-zinc-500">
+                          &ldquo;{c.lastMessage}&rdquo;
+                        </p>
+                      )}
                     </div>
                   </div>
 

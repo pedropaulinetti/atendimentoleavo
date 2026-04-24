@@ -36,10 +36,13 @@ export async function GET() {
         });
         const firstAttendant = c.attendants?.[0];
         const attendantName = firstAttendant?.name ?? (firstAttendant ? "Atendente" : "Sem atendente");
+        const rawBody = c.lastMessage?.body?.trim() ?? "";
+        const lastMessage = rawBody ? rawBody.replace(/\s+/g, " ").slice(0, 240) : null;
         return {
           id: c.id, name: c.name, level, minutosParada, attendantName,
           departmentName: c.currentDepartment?.name ?? "—",
           departmentColor: c.currentDepartment?.color ?? "#666",
+          lastMessage,
         };
       })
       .filter(c => c.level !== "ok" && c.level !== "respondida")

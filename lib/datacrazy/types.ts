@@ -16,6 +16,12 @@ export interface DCConversation {
   attendants: Array<{ id: string; userId?: string; name?: string; email?: string }>;
   currentDepartment?: { id: string; name: string; color: string } | null;
   contact?: { externalInfo?: { pipelineIds?: string[]; stageIds?: string[] } };
+  lastMessage?: {
+    body?: string;
+    received?: boolean;
+    status?: string;
+    createdAt?: string;
+  } | null;
 }
 
 export interface DCDeal {
