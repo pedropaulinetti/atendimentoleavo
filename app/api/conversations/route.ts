@@ -49,6 +49,26 @@ export async function GET() {
       .filter(c => c.minutosParada <= MAX_AGE_MINUTES)
       .sort((a, b) => a.minutosParada - b.minutosParada);
 
-    return NextResponse.json({ conversations: enriched, updatedAt: new Date().toISOString() });
+    const avgMinutos = enriched.length
+      ? enriched.reduce((sum, c) => sum + c.minutosParada, 0) / enriched.length
+      : 0;
+    const maxMinutos = enriched.length
+      ? Math.max(...enriched.map(c => c.minutosParada))
+      : 0;
+
+    const byDepartmentMap = new Map<string, { name: string; color: string; count: number }>();
+    for (const c of enriched) {
+      const key = c.departmentName;
+      const hit = byDepartmentMap.get(key);
+      if (hit) hit.count += 1;
+      else byDepartmentMap.set(key, { name: c.departmentName, color: c.departmentColor, count: 1 });
+    }
+    const byDepartment = Array.from(byDepartmentMap.values()).sort((a, b) => b.count - a.count);
+
+    return NextResponse.json({
+      conversations: enriched,
+      updatedAt: new Date().toISOString(),
+      stats: { avgMinutos, maxMinutos, byDepartment },
+    });
   } catch (err) { return handleDCError(err); }
 }

@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { BigStat } from "@/components/shared/BigStat";
-import { AlertCircle, AlertTriangle, CheckCircle2, Clock, MessageSquare } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, Clock, MessageSquare, Timer, Hourglass, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Conversation {
@@ -55,7 +55,15 @@ export function ConversationList({ soundEnabled }: { soundEnabled: boolean }) {
     queryFn: async () => {
       const r = await fetch("/api/conversations");
       if (!r.ok) throw new Error(`${r.status}`);
-      return r.json() as Promise<{ conversations: Conversation[]; updatedAt: string }>;
+      return r.json() as Promise<{
+        conversations: Conversation[];
+        updatedAt: string;
+        stats: {
+          avgMinutos: number;
+          maxMinutos: number;
+          byDepartment: { name: string; color: string; count: number }[];
+        };
+      }>;
     },
     refetchInterval: 10_000,
   });
@@ -95,6 +103,9 @@ export function ConversationList({ soundEnabled }: { soundEnabled: boolean }) {
   };
   const total = counts.red + counts.yellow + counts.green;
   const updatedLabel = new Date(data.updatedAt).toLocaleTimeString("pt-BR");
+  const avgLabel = formatTimeParada(data.stats.avgMinutos).value;
+  const maxLabel = formatTimeParada(data.stats.maxMinutos).value;
+  const topDept = data.stats.byDepartment[0];
 
   return (
     <div className="space-y-4">
@@ -128,6 +139,62 @@ export function ConversationList({ soundEnabled }: { soundEnabled: boolean }) {
           tone="emerald"
         />
       </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        <BigStat
+          label="Tempo médio sem resposta"
+          value={total > 0 ? avgLabel : "—"}
+          sublabel={total > 0 ? `das ${total} em alerta` : "sem conversas em alerta"}
+          icon={Timer}
+          tone="default"
+        />
+        <BigStat
+          label="Maior espera"
+          value={total > 0 ? maxLabel : "—"}
+          sublabel={total > 0 ? "conversa mais atrasada" : "sem atraso"}
+          icon={Hourglass}
+          tone={data.stats.maxMinutos > 30 ? "red" : "default"}
+        />
+        <BigStat
+          label="Departamento mais pressionado"
+          value={topDept?.name ?? "—"}
+          sublabel={topDept ? `${topDept.count} ${topDept.count === 1 ? "conversa" : "conversas"}` : "—"}
+          icon={Building2}
+          tone="default"
+        />
+      </div>
+
+      {data.stats.byDepartment.length > 1 && (
+        <Card className="p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <Building2 className="size-4 text-zinc-400" />
+            <h3 className="text-sm font-medium text-zinc-700">Por departamento</h3>
+          </div>
+          <ul className="space-y-2">
+            {data.stats.byDepartment.map(d => {
+              const pct = total > 0 ? (d.count / total) * 100 : 0;
+              return (
+                <li key={d.name} className="flex items-center gap-3 text-sm">
+                  <span
+                    className="inline-block size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: d.color }}
+                  />
+                  <span className="w-40 shrink-0 truncate font-medium text-zinc-700">{d.name}</span>
+                  <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-zinc-100">
+                    <div
+                      className="absolute inset-y-0 left-0 rounded-full bg-zinc-900 transition-all"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className="w-12 shrink-0 text-right tabular-nums font-semibold text-zinc-900">
+                    {d.count}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
       {data.conversations.length === 0 ? (
         <Card className="p-12 text-center">
           <div className="flex flex-col items-center gap-3">
