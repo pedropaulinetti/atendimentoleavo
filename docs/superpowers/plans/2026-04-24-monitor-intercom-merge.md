@@ -121,6 +121,8 @@ Purpose: confirm current shape; you will move lines 29-50 (approx) into the mapp
 
 - [ ] **Step 2: Create `lib/datacrazy/mapper.ts`**
 
+Critical: this preserves the existing N+1 `GET /conversations/{id}/messages` call per alert conversation that builds the `lastMessage` preview from the last RECEIVED message, including the attachment-type fallbacks (`🎤 Áudio` / `🖼️ Imagem` / `🎥 Vídeo` / `📎 Documento` / `📎 Anexo` / `(mensagem sem texto)`). Dropping this would regress the preview quality.
+
 ```typescript
 import { dcFetch } from "./client";
 import { getStages, handleDCError } from "./pipeline";
@@ -128,6 +130,39 @@ import { computeAlertLevel } from "@/lib/monitor/severity";
 import { MAX_AGE_MINUTES } from "@/lib/monitor/constants";
 import type { DCConversation } from "./types";
 import type { Conversation } from "@/lib/monitor/types";
+
+type DCMessage = {
+  body?: string;
+  received?: boolean;
+  attachments?: Array<{ type?: string; mimeType?: string }>;
+  createdAt?: string;
+};
+
+async function fetchReceivedPreview(convId: string): Promise<string | null> {
+  try {
+    const msgsRes = await dcFetch<{ messages?: DCMessage[] }>(
+      `/conversations/${convId}/messages`,
+      { take: 20 },
+    );
+    const list = msgsRes.messages ?? [];
+    const lastReceived = list.find(m => m.received === true);
+    if (!lastReceived) return null;
+    const body = (lastReceived.body ?? "").trim();
+    if (body) return body.replace(/\s+/g, " ").slice(0, 240);
+    if (lastReceived.attachments && lastReceived.attachments.length > 0) {
+      const att = lastReceived.attachments[0];
+      const type = (att.type || att.mimeType || "").toLowerCase();
+      if (type.includes("audio")) return "🎤 Áudio";
+      if (type.includes("image")) return "🖼️ Imagem";
+      if (type.includes("video")) return "🎥 Vídeo";
+      if (type.includes("document") || type.includes("pdf")) return "📎 Documento";
+      return "📎 Anexo";
+    }
+    return "(mensagem sem texto)";
+  } catch {
+    return null;
+  }
+}
 
 export async function fetchAndMapDCConversations(now: number): Promise<Conversation[]> {
   const INSTANCE_ID = process.env.INSTANCE_ID;
@@ -143,7 +178,7 @@ export async function fetchAndMapDCConversations(now: number): Promise<Conversat
     },
   });
 
-  return res.data
+  const alerted = res.data
     .filter(c => !c.isGroup)
     .map(c => {
       const { level, minutosParada } = computeAlertLevel({
@@ -153,24 +188,40 @@ export async function fetchAndMapDCConversations(now: number): Promise<Conversat
       });
       const firstAttendant = c.attendants?.[0];
       const attendantName = firstAttendant?.name ?? (firstAttendant ? "Atendente" : "Sem atendente");
+      // Baseline preview from list payload; enriched per-conversation below.
       const rawBody = c.lastMessage?.body?.trim() ?? "";
-      const lastMessage = rawBody ? rawBody.replace(/\s+/g, " ").slice(0, 240) : null;
+      const baselinePreview = rawBody ? rawBody.replace(/\s+/g, " ").slice(0, 240) : null;
       return {
         id: `dc:${c.id}`,
+        rawId: c.id,
         source: "datacrazy" as const,
         name: c.name,
         level, minutosParada, attendantName,
         departmentName: c.currentDepartment?.name ?? "—",
         departmentColor: c.currentDepartment?.color ?? "#666",
-        lastMessage,
+        lastMessage: baselinePreview,
       };
     })
     .filter(c => c.level !== "ok" && c.level !== "respondida")
-    .filter(c => c.minutosParada <= MAX_AGE_MINUTES) as Conversation[];
+    .filter(c => c.minutosParada <= MAX_AGE_MINUTES);
+
+  // N+1 preview enrichment: fetch last-received message body per alert conversation.
+  // Matches the behavior in the current inline route logic (app/api/conversations/route.ts:60-91).
+  const enriched = await Promise.all(
+    alerted.map(async c => {
+      const preview = await fetchReceivedPreview(c.rawId);
+      const { rawId, ...rest } = c;
+      return { ...rest, lastMessage: preview ?? c.lastMessage };
+    }),
+  );
+
+  return enriched as Conversation[];
 }
 
 export { handleDCError };
 ```
+
+Sanity-check: this mirrors [app/api/conversations/route.ts:52-91](../../../app/api/conversations/route.ts#L52-L91) one-to-one — same attachment icons, same fallbacks, same try/catch swallow.
 
 - [ ] **Step 3: Rewrite `app/api/conversations/route.ts` to call the mapper**
 
@@ -1011,30 +1062,74 @@ export async function getTeamsById(): Promise<Map<string, string>> {
 }
 ```
 
-- [ ] **Step 3: Extend `lib/intercom/admins.ts` with admin-name map**
+- [ ] **Step 3: Refactor `lib/intercom/admins.ts` to unify bot + name resolution**
 
-Add:
+The goal is to fetch `/admins` at most once per TTL. Replace the existing `getBotAdminIds` with a single resolver that produces both the bot-ID set and the id→name map from one cache:
+
 ```typescript
-export async function getAdminsById(): Promise<Map<string, string>> {
+import { icFetch } from "./client";
+import type { ICAdmin } from "./types";
+
+const TTL_MS = 60 * 60 * 1000;
+const BOT_NAME_PATTERN = /fin|operator|bot/i;
+
+interface ResolvedAdmins {
+  botIds: Set<string>;
+  namesById: Map<string, string>;
+}
+
+let cache: { value: ResolvedAdmins; expiresAt: number } | null = null;
+
+export function __resetCache() { cache = null; }
+
+export async function getResolvedAdmins(): Promise<ResolvedAdmins> {
+  const envIds = (process.env.INTERCOM_BOT_ADMIN_IDS ?? "")
+    .split(",").map(s => s.trim()).filter(Boolean);
+
+  if (cache && Date.now() < cache.expiresAt) {
+    if (envIds.length > 0) {
+      return { ...cache.value, botIds: new Set(envIds) };
+    }
+    return cache.value;
+  }
+
   try {
     const res = await icFetch<{ admins: ICAdmin[] }>("GET", "/admins");
-    return new Map(res.admins.map(a => [a.id, a.name]));
+    const namesById = new Map(res.admins.map(a => [a.id, a.name]));
+    const botIds = envIds.length > 0
+      ? new Set(envIds)
+      : new Set(res.admins.filter(a => BOT_NAME_PATTERN.test(a.name)).map(a => a.id));
+    const resolved: ResolvedAdmins = { botIds, namesById };
+    cache = { value: resolved, expiresAt: Date.now() + TTL_MS };
+    return resolved;
   } catch {
-    return new Map();
+    if (cache) return cache.value;
+    return { botIds: new Set(envIds), namesById: new Map() };
   }
+}
+
+// Backward compat for Task 6 tests.
+export async function getBotAdminIds(): Promise<Set<string>> {
+  return (await getResolvedAdmins()).botIds;
 }
 ```
 
-- [ ] **Step 4: Modify `lib/intercom/mapper.ts` to use the lookups**
+Update the Task 6 tests only if they break on the env-short-circuit (the env-only branch no longer bypasses the fetch entirely — it still caches `namesById`, which is fine). Confirm Task 6 tests still pass:
+
+Run: `pnpm vitest run tests/lib/intercom-admins.test.ts`
+Expected: all 3 pass.
+
+- [ ] **Step 4: Modify `lib/intercom/mapper.ts` to use the unified resolver**
 
 Replace the hard-coded `"Sem atendente"` / `"Intercom"` with:
 ```typescript
-import { getAdminsById } from "./admins";
+import { getResolvedAdmins } from "./admins";
 import { getTeamsById } from "./teams";
 
 // inside fetchAndMapIntercomConversations, in parallel with search:
-const [botIds, adminsById, teamsById] = await Promise.all([
-  getBotAdminIds(), getAdminsById(), getTeamsById(),
+const [{ botIds, namesById: adminsById }, teamsById] = await Promise.all([
+  getResolvedAdmins(),
+  getTeamsById(),
 ]);
 
 // ...when building each mapped conversation:
@@ -1045,6 +1140,8 @@ departmentName: c.team_assignee_id
   ? (teamsById.get(c.team_assignee_id) ?? "Intercom")
   : "Intercom",
 ```
+
+Result: one `/admins` call per TTL window serves both bot identification and attendant-name lookup. `/teams` is independent and cached separately.
 
 - [ ] **Step 5: Run tests**
 
@@ -1070,51 +1167,117 @@ git commit -m "feat(intercom): enrich attendant and department from admin/team l
 
 - [ ] **Step 1: Write failing merge tests**
 
-Append to `tests/api/conversations.test.ts` (add at top-level and imports as needed):
+Append to `tests/api/conversations.test.ts`. The first test below is fully fleshed out as a template; the remaining four follow the same pattern, swapping only the MSW handlers and assertions.
+
 ```typescript
 describe("GET /api/conversations — multi-source", () => {
   beforeEach(() => {
     process.env.INTERCOM_TOKEN = "tok:test";
     process.env.INTERCOM_WORKSPACE_ID = "ws1";
     process.env.INTERCOM_ENABLED = "true";
+    // reset Intercom caches so tests don't leak state
+    return Promise.all([
+      import("@/lib/intercom/admins").then(m => m.__resetCache()),
+      import("@/lib/intercom/cache").then(m => m.__reset()),
+    ]);
   });
 
-  it("merges DC and IC sorted by minutosParada", async () => {
-    // DC handlers (stages + conversations) with one conv 5min waiting
-    // IC handler with one conv 20min waiting
-    // assert: body.conversations has 2 items, ic first (20min), dc second (5min)
-    // assert: each has `source` set
+  it("merges DC and IC sorted by minutosParada ascending", async () => {
+    const now = Date.now();
+    const dcReceived = new Date(now - 5 * 60_000).toISOString();      // 5 min ago
+    const icContactReply = Math.floor((now - 20 * 60_000) / 1000);    // 20 min ago
+
+    server.use(
+      // DC stages
+      http.get("https://api.g1.datacrazy.io/api/v1/pipelines/p1/stages",
+        () => HttpResponse.json({ data: [{ id: "s1", name: "Atend", index: 0 }] })),
+      // DC conversations
+      http.get("https://api.g1.datacrazy.io/api/v1/conversations",
+        () => HttpResponse.json({ data: [{
+          id: "dc1", isGroup: false, name: "João",
+          lastReceivedMessageDate: dcReceived, lastSendedMessageDate: null,
+          attendants: [], currentDepartment: { id: "d1", name: "BR", color: "#f00" },
+          lastMessage: { body: "olá" },
+        }] })),
+      // DC message preview
+      http.get("https://api.g1.datacrazy.io/api/v1/conversations/dc1/messages",
+        () => HttpResponse.json({ messages: [
+          { body: "preciso de ajuda", received: true, createdAt: dcReceived },
+        ] })),
+      // IC admins (empty → no bots)
+      http.get("https://api.intercom.io/admins",
+        () => HttpResponse.json({ admins: [] })),
+      http.get("https://api.intercom.io/teams",
+        () => HttpResponse.json({ teams: [] })),
+      // IC search
+      http.post("https://api.intercom.io/conversations/search",
+        () => HttpResponse.json({ conversations: [{
+          id: "ic1", state: "open", updated_at: 100, waiting_since: icContactReply,
+          statistics: { last_contact_reply_at: icContactReply, last_admin_reply_at: null },
+          source: { body: "help please", author: { name: "Maria" } },
+          contacts: { contacts: [{ id: "u1", name: "Maria" }] },
+          team_assignee_id: null, admin_assignee_id: null,
+        }] })),
+    );
+
+    const { GET } = await import("@/app/api/conversations/route");
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.conversations).toHaveLength(2);
+    // ascending by minutosParada: DC (5min) first, IC (20min) second
+    expect(body.conversations[0].id).toBe("dc:dc1");
+    expect(body.conversations[0].source).toBe("datacrazy");
+    expect(body.conversations[1].id).toBe("ic:ic1");
+    expect(body.conversations[1].source).toBe("intercom");
+    expect(body.sourceErrors).toBeUndefined();
   });
 
-  it("returns only DC with sourceErrors.intercom when IC returns 429", async () => {
-    // DC normal, IC /conversations/search → 429
-    // assert: conversations contains only DC items
-    // assert: body.sourceErrors.intercom === "rate_limit"
+  it("returns only DC with sourceErrors.intercom when IC search returns 429", async () => {
+    // Same DC handlers as above. IC /conversations/search returns 429.
+    // Assert: body.conversations contains only dc:... items, body.sourceErrors.intercom === "rate_limit".
+    // Assert: res.status === 200 (partial success).
   });
 
-  it("returns only IC with sourceErrors.datacrazy when DC returns 500", async () => {
-    // Inverse of above
+  it("returns only IC with sourceErrors.datacrazy when DC /conversations returns 500", async () => {
+    // DC /pipelines/:id/stages succeeds; DC /conversations returns 500. IC normal.
+    // Assert: body.conversations contains only ic:... items, body.sourceErrors.datacrazy set.
+    // Assert: res.status === 200.
   });
 
-  it("returns 503 when both fail", async () => {
-    // Both search endpoints 500
-    // assert: response.status === 503, body.sourceErrors has both keys
+  it("returns 503 when both sources fail", async () => {
+    // DC /conversations 500 AND IC /conversations/search 500.
+    // Assert: res.status === 503, body.error === "ALL_SOURCES_FAILED",
+    // body.sourceErrors has both `datacrazy` and `intercom` keys.
   });
 
   it("skips IC fetch when INTERCOM_ENABLED=false", async () => {
     process.env.INTERCOM_ENABLED = "false";
     let icCalls = 0;
-    server.use(http.post("https://api.intercom.io/conversations/search", () => {
-      icCalls++; return HttpResponse.json({ conversations: [] });
-    }));
-    // DC normal
-    // call GET
-    // assert: icCalls === 0; no sourceErrors.intercom
+    server.use(
+      http.post("https://api.intercom.io/conversations/search", () => {
+        icCalls++;
+        return HttpResponse.json({ conversations: [] });
+      }),
+      // DC handlers returning empty
+      http.get("https://api.g1.datacrazy.io/api/v1/pipelines/p1/stages",
+        () => HttpResponse.json({ data: [] })),
+      http.get("https://api.g1.datacrazy.io/api/v1/conversations",
+        () => HttpResponse.json({ data: [] })),
+    );
+
+    const { GET } = await import("@/app/api/conversations/route");
+    const res = await GET();
+    const body = await res.json();
+
+    expect(icCalls).toBe(0);
+    expect(body.sourceErrors).toBeUndefined();
   });
 });
 ```
 
-Fill in the handlers using existing DC test patterns as reference ([tests/api/conversations.test.ts](tests/api/conversations.test.ts)). Use realistic timestamps: `Date.now() - minutes * 60_000` then convert for IC to Unix seconds.
+The four stub tests marked with `// Assert: ...` comments mirror the fleshed-out first test's structure: swap the MSW handlers to simulate the failure mode, keep the Supabase mock and env setup identical. Use `Date.now()` for timestamps.
 
 - [ ] **Step 2: Verify tests fail**
 
@@ -1252,33 +1415,83 @@ return r.json() as Promise<{
 )}
 ```
 
-- [ ] **Step 3: Render source badge inside the card** (inside the name block, around [line 229](components/monitor/ConversationList.tsx#L229)):
+- [ ] **Step 3: (deferred to Step 4)** — the source badge is integrated into the extracted `ConversationCard` sub-component in Step 4. Skip this step and proceed to Step 4.
+
+- [ ] **Step 4: Extract `ConversationCard` and wrap in a link when `externalUrl` is set**
+
+To avoid duplicating ~45 lines of JSX across two branches, extract a local sub-component that renders the `<Card>` body, then wrap it in an anchor only when `externalUrl` is present.
+
+Above the `ConversationList` function (after the `LEVEL_CONFIG` constant), add:
 
 ```tsx
-<div className="flex items-center gap-2">
-  <p className="font-medium text-zinc-900 leading-tight truncate">{c.name}</p>
-  <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono shrink-0">
-    {c.source === "datacrazy" ? "DC" : "IC"}
-  </Badge>
-</div>
+function ConversationCard({ c }: { c: Conversation }) {
+  const cfg = LEVEL_CONFIG[c.level];
+  const time = formatTimeParada(c.minutosParada);
+  return (
+    <Card
+      className={cn(
+        "flex items-center justify-between border-l-4 px-5 py-4 transition-shadow hover:shadow-md",
+        cfg.border,
+        cfg.bg,
+      )}
+    >
+      <div className="flex items-center gap-4">
+        <Avatar>
+          <AvatarFallback className="text-xs font-semibold bg-zinc-200 text-zinc-700">
+            {getInitials(c.name)}
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0 max-w-md">
+          <div className="flex items-center gap-2">
+            <p className="font-medium text-zinc-900 leading-tight truncate">{c.name}</p>
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono shrink-0">
+              {c.source === "datacrazy" ? "DC" : "IC"}
+            </Badge>
+          </div>
+          {c.lastMessage && (
+            <p className="mt-1 line-clamp-2 text-sm text-zinc-500">
+              &ldquo;{c.lastMessage}&rdquo;
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-4">
+        <div className="text-right">
+          <p className="text-2xl font-semibold tabular-nums leading-none text-zinc-900">
+            {time.value}
+          </p>
+          <p className="mt-0.5 text-xs text-zinc-500">{time.label}</p>
+        </div>
+        <Badge variant="outline" className={cn("hidden sm:inline-flex shrink-0", cfg.badge)}>
+          <span
+            className="mr-1.5 inline-block size-1.5 rounded-full"
+            style={{ backgroundColor: c.departmentColor }}
+          />
+          {c.departmentName}
+        </Badge>
+      </div>
+    </Card>
+  );
+}
 ```
 
-- [ ] **Step 4: Wrap card in a link when `externalUrl` is set**
+Then replace the list-item rendering ([components/monitor/ConversationList.tsx:210-262](components/monitor/ConversationList.tsx#L210-L262)) with:
 
-Replace `<li key={c.id}><Card ...>...</Card></li>` with:
 ```tsx
-<li key={c.id}>
-  {c.externalUrl ? (
-    <a href={c.externalUrl} target="_blank" rel="noreferrer" className="block">
-      <Card className={cn(/* same classes */)}>...</Card>
-    </a>
-  ) : (
-    <Card className={cn(/* same classes */)}>...</Card>
-  )}
-</li>
+{data.conversations.map(c => (
+  <li key={c.id}>
+    {c.externalUrl ? (
+      <a href={c.externalUrl} target="_blank" rel="noreferrer" className="block">
+        <ConversationCard c={c} />
+      </a>
+    ) : (
+      <ConversationCard c={c} />
+    )}
+  </li>
+))}
 ```
 
-Keep the Card body identical in both branches — consider extracting a `<ConversationCardBody c={c} />` sub-component if the duplication feels off.
+This consolidates Steps 3 and 4 into one edit site. Step 3's source-badge JSX lives inside `ConversationCard` now; remove any duplicate badge insertion you made at Step 3 if you edited the inline JSX there.
 
 - [ ] **Step 5: Typecheck + lint**
 
