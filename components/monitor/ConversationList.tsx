@@ -271,7 +271,7 @@ export function ConversationList({ soundEnabled }: { soundEnabled: boolean }) {
           {data.conversations.map(c => (
             <li key={c.id}>
               {c.externalUrl ? (
-                <a href={c.externalUrl} target="_blank" rel="noreferrer" className="block">
+                <a href={c.externalUrl} target="_blank" rel="noreferrer" className="block no-underline">
                   <ConversationCard c={c} />
                 </a>
               ) : (
