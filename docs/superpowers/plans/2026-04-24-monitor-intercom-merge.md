@@ -1114,10 +1114,28 @@ export async function getBotAdminIds(): Promise<Set<string>> {
 }
 ```
 
-Update the Task 6 tests only if they break on the env-short-circuit (the env-only branch no longer bypasses the fetch entirely — it still caches `namesById`, which is fine). Confirm Task 6 tests still pass:
+**Task 6 test update required** — the "returns env-configured IDs as a Set, no API call" test from Task 6 was written against the original behavior where env-set bot IDs short-circuited the fetch entirely. In this unified resolver, `/admins` is always fetched on cache miss to populate `namesById` (env still wins for `botIds`). Replace that test with:
+
+```typescript
+it("env-configured bot IDs win over name-match when both present", async () => {
+  process.env.INTERCOM_BOT_ADMIN_IDS = "123,456";
+  server.use(http.get("https://api.intercom.io/admins", () =>
+    HttpResponse.json({ admins: [
+      { id: "7", type: "admin", name: "Fin" },   // would be a bot by name match
+      { id: "123", type: "admin", name: "Ana" }, // env says this IS a bot
+    ]})));
+  const { getBotAdminIds } = await import("@/lib/intercom/admins");
+  const ids = await getBotAdminIds();
+  expect(ids.has("123")).toBe(true);
+  expect(ids.has("456")).toBe(true);
+  expect(ids.has("7")).toBe(false); // env overrides name-match
+});
+```
+
+This replaces the old test with a sharper assertion: the env var's precedence, not "no network call".
 
 Run: `pnpm vitest run tests/lib/intercom-admins.test.ts`
-Expected: all 3 pass.
+Expected: all 3 pass (the two unchanged tests + the replacement).
 
 - [ ] **Step 4: Modify `lib/intercom/mapper.ts` to use the unified resolver**
 
@@ -1209,7 +1227,9 @@ describe("GET /api/conversations — multi-source", () => {
         () => HttpResponse.json({ admins: [] })),
       http.get("https://api.intercom.io/teams",
         () => HttpResponse.json({ teams: [] })),
-      // IC search
+      // IC search — note: no `GET /conversations/:id` handler registered because
+      // last_admin_reply_at is null → conversation is in group A (obviously-waiting),
+      // so the mapper does not fetch parts for it.
       http.post("https://api.intercom.io/conversations/search",
         () => HttpResponse.json({ conversations: [{
           id: "ic1", state: "open", updated_at: 100, waiting_since: icContactReply,
@@ -1491,7 +1511,7 @@ Then replace the list-item rendering ([components/monitor/ConversationList.tsx:2
 ))}
 ```
 
-This consolidates Steps 3 and 4 into one edit site. Step 3's source-badge JSX lives inside `ConversationCard` now; remove any duplicate badge insertion you made at Step 3 if you edited the inline JSX there.
+This consolidates Steps 3 and 4 into one edit site. The source-badge JSX lives inside `ConversationCard`.
 
 - [ ] **Step 5: Typecheck + lint**
 

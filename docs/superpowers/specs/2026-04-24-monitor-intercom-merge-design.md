@@ -33,7 +33,7 @@ GET /api/conversations
    ├─► fetchDatacrazy()  ──► DC API (existing)
    └─► fetchIntercom()   ──► Intercom API (new)
          │
-         ▼  Promise.allSettled → normalize → merge → sort by minutosParada desc
+         ▼  Promise.allSettled → normalize → merge → sort by minutosParada asc
          ▼
    { conversations, updatedAt, stats, sourceErrors? }
 ```
@@ -163,7 +163,7 @@ if (conversations.length === 0 && Object.keys(sourceErrors).length === 2) {
   return NextResponse.json({ error: "ALL_SOURCES_FAILED", sourceErrors }, { status: 503 });
 }
 
-conversations.sort((a, b) => b.minutosParada - a.minutosParada);
+conversations.sort((a, b) => a.minutosParada - b.minutosParada);  // asc, matches existing Monitor behavior
 
 return NextResponse.json({
   conversations,
@@ -266,7 +266,7 @@ INTERCOM_ENABLED=true               # kill-switch: "false" = skip IC fetch, no e
   - `externalUrl` built correctly from `workspaceId` + `conv.id`
 
 **Integration (expand `tests/api/conversations.test.ts`):**
-- Both sources fulfilled → merged and sorted by `minutosParada` desc; each item has `source`.
+- Both sources fulfilled → merged and sorted by `minutosParada` asc; each item has `source`.
 - Intercom returns 429 → only DC returned, `sourceErrors.intercom === "rate_limit"`.
 - DC returns 500 + Intercom ok → only IC returned, `sourceErrors.datacrazy` set.
 - Both fail → 503 with `sourceErrors`.
