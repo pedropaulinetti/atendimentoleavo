@@ -1,6 +1,5 @@
 {
   "crons": [
-    { "path": "/api/cron/snapshot-metrics", "schedule": "*/15 * * * *" },
-    { "path": "/api/cron/prune-metrics",    "schedule": "0 3 * * 0" }
+    { "path": "/api/cron/prune-metrics", "schedule": "0 3 * * 0" }
   ]
 }

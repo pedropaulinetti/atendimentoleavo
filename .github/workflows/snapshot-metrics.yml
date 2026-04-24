@@ -1,0 +1,38 @@
+name: Snapshot Metrics
+
+# Vercel Hobby plan blocks crons more frequent than daily, so we trigger
+# the metrics snapshot endpoint from GitHub Actions instead. This keeps
+# 15-minute granularity for free.
+#
+# Required repo secrets:
+#   CRON_SECRET          — same value as on Vercel (Bearer token)
+#   VERCEL_APP_URL       — e.g. https://atendimentoleavo.vercel.app
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Call snapshot endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$VERCEL_APP_URL" ]; then
+            echo "::error::CRON_SECRET or VERCEL_APP_URL secret is missing"
+            exit 1
+          fi
+          status=$(curl -sS -o /tmp/body -w "%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/cron/snapshot-metrics")
+          echo "HTTP $status"
+          cat /tmp/body
+          # 200 ok; 503 = partial upstream failure we already log but don't fail the job for
+          if [ "$status" != "200" ] && [ "$status" != "503" ]; then
+            exit 1
+          fi
