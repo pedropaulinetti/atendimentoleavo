@@ -5,6 +5,8 @@ import { computeAlertLevel } from "@/lib/monitor/severity";
 import { getStages, handleDCError } from "@/lib/datacrazy/pipeline";
 import type { DCConversation } from "@/lib/datacrazy/types";
 
+const MAX_AGE_MINUTES = 24 * 60; // 24h cap — ignore ancient abandoned conversations
+
 export async function GET() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -41,7 +43,8 @@ export async function GET() {
         };
       })
       .filter(c => c.level !== "ok" && c.level !== "respondida")
-      .sort((a, b) => b.minutosParada - a.minutosParada);
+      .filter(c => c.minutosParada <= MAX_AGE_MINUTES)
+      .sort((a, b) => a.minutosParada - b.minutosParada);
 
     return NextResponse.json({ conversations: enriched, updatedAt: new Date().toISOString() });
   } catch (err) { return handleDCError(err); }

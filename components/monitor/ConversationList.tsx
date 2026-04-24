@@ -159,7 +159,6 @@ export function ConversationList({ soundEnabled }: { soundEnabled: boolean }) {
                     </Avatar>
                     <div>
                       <p className="font-medium text-zinc-900 leading-tight">{c.name}</p>
-                      <p className="mt-0.5 text-xs text-zinc-500">{c.attendantName}</p>
                     </div>
                   </div>
 
