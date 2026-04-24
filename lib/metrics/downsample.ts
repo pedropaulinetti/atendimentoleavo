@@ -35,7 +35,7 @@ export function downsample<T extends Point>(
     const out: Record<string, unknown> = { capturedAt: new Date(k).toISOString() };
     for (const field in aggregators) {
       const agg = aggregators[field as keyof T]!;
-      const values = bucket.map(p => p[field as keyof T]);
+      const values: unknown[] = bucket.map(p => p[field as keyof T]);
       if (agg === "avg") {
         const nums = values.filter((v): v is number => typeof v === "number");
         out[field] = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
