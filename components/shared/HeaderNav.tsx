@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 const NAV_LINKS = [
   { href: "/monitor",   label: "Monitor" },
   { href: "/funil",     label: "Funil" },
-  { href: "/historico", label: "Histórico" },
+  { href: "/dashboard", label: "Dashboard" },
 ] as const;
 
 export function HeaderNav() {
