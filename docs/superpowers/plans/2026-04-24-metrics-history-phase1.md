@@ -374,15 +374,34 @@ pnpm vitest run tests/lib/monitor-snapshot.test.ts
 ```
 Expected: PASS (2 testes).
 
-- [ ] **Step 5: Refatorar `/api/conversations` pra usar `captureMonitor`**
+- [ ] **Step 5: Refatorar `/api/conversations` pra usar `captureMonitor` (preservando o preview enriquecido)**
 
-Substituir todo o corpo do `try { ... }` de `app/api/conversations/route.ts` por:
+**ATENÇÃO:** o route atual faz uma segunda chamada `/conversations/{id}/messages` por alerta pra construir `lastMessage` com fallback pra anexos (🎤 Áudio / 🖼️ Imagem / 🎥 Vídeo / 📎 Documento / "(mensagem sem texto)"). Esse enrichment **NÃO deve entrar em `captureMonitor`** — snapshots históricos não guardam preview (só agregados) e a segunda chamada é cara. A lib retorna alerts "crus"; o route live compõe por cima.
+
+Substituir `app/api/conversations/route.ts` inteiro por:
 
 ```ts
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { dcFetch } from "@/lib/datacrazy/client";
 import { captureMonitor } from "@/lib/monitor/snapshot";
 import { handleDCError } from "@/lib/datacrazy/pipeline";
+
+type DCMessage = {
+  body?: string;
+  received?: boolean;
+  attachments?: Array<{ type?: string; mimeType?: string }>;
+  createdAt?: string;
+};
+
+function previewFromAttachment(att: { type?: string; mimeType?: string }): string {
+  const type = (att.type || att.mimeType || "").toLowerCase();
+  if (type.includes("audio")) return "🎤 Áudio";
+  if (type.includes("image")) return "🖼️ Imagem";
+  if (type.includes("video")) return "🎥 Vídeo";
+  if (type.includes("document") || type.includes("pdf")) return "📎 Documento";
+  return "📎 Anexo";
+}
 
 export async function GET() {
   const supabase = await createClient();
@@ -391,20 +410,46 @@ export async function GET() {
 
   try {
     const { snapshot, alerts, capturedAt } = await captureMonitor();
-    const { countRed, countYellow, countGreen, ...rest } = snapshot;
-    void countRed; void countYellow; void countGreen; // contagens derivadas já vêm via alerts
+
+    const withPreview = await Promise.all(alerts.map(async c => {
+      try {
+        const msgsRes = await dcFetch<{ messages?: DCMessage[] }>(
+          `/conversations/${c.id}/messages`,
+          { take: 20 }
+        );
+        const list = msgsRes.messages ?? [];
+        const lastReceived = list.find(m => m.received === true);
+        let preview: string | null = null;
+        if (lastReceived) {
+          const body = (lastReceived.body ?? "").trim();
+          if (body) {
+            preview = body.replace(/\s+/g, " ").slice(0, 240);
+          } else if (lastReceived.attachments && lastReceived.attachments.length > 0) {
+            preview = previewFromAttachment(lastReceived.attachments[0]);
+          } else {
+            preview = "(mensagem sem texto)";
+          }
+        }
+        return { ...c, lastMessage: preview };
+      } catch {
+        return c; // fallback: mantém o preview já devolvido pela lib
+      }
+    }));
+
     return NextResponse.json({
-      conversations: alerts,
+      conversations: withPreview,
       updatedAt: capturedAt,
       stats: {
-        avgMinutos: rest.avgMinutos,
-        maxMinutos: rest.maxMinutos,
-        byDepartment: rest.byDepartment,
+        avgMinutos: snapshot.avgMinutos,
+        maxMinutos: snapshot.maxMinutos,
+        byDepartment: snapshot.byDepartment,
       },
     });
   } catch (err) { return handleDCError(err); }
 }
 ```
+
+**Smoke check manual antes do commit:** rodar `pnpm dev`, abrir `/monitor`, confirmar que cards de conversas em alerta continuam exibindo texto da última mensagem recebida (ou os emojis de anexo). A suíte automatizada não cobre esse visual — `tests/api/conversations.test.ts` passa verde mesmo se o preview regredir.
 
 - [ ] **Step 6: Rodar todos os testes**
 
@@ -631,8 +676,11 @@ export async function GET(req: NextRequest) {
     const stages = await getStages();
     const grouped = groupDealsByStage(deals, stages);
 
+    // Preserva a forma original do `stage` consumida pela UI do funil (spread
+    // do DCPipelineStage). `snapshot.stages` tem os agregados.
+    const stageById = new Map(stages.map(s => [s.id, s]));
     const stageData = snapshot.stages.map(s => ({
-      stage: { id: s.id, name: s.name, index: s.index, color: s.color },
+      stage: stageById.get(s.id)!,
       metrics: { count: s.count, avgTimeInStageMs: s.avgMs, stuckCount: s.stuck },
       deals: (grouped.get(s.id) ?? []).map(d => ({
         id: d.id, name: d.name, createdAt: d.createdAt,
@@ -1742,7 +1790,7 @@ Adicionar uma seção nova **"Histórico de métricas"** depois da seção de pa
 - Snapshots automáticos a cada 15 min (Vercel Cron)
 - Pruning semanal (domingo 03:00 UTC)
 - `CRON_SECRET` novo em env vars (gerar com `openssl rand -hex 32`)
-- `SUPABASE_SERVICE_ROLE_KEY` precisa existir também em produção na Vercel
+- `SUPABASE_SERVICE_ROLE_KEY` precisa existir também em produção na Vercel. **Importante:** nunca usar prefixo `NEXT_PUBLIC_` nessa var — o Next.js expõe qualquer `NEXT_PUBLIC_*` ao bundle do cliente, e a service role ignora RLS.
 - Migration a ser aplicada em Supabase antes do primeiro deploy: `supabase/migrations/20260424120000_metrics_snapshots.sql`
 - Página `/historico` só mostra dados depois que o cron rodou ao menos uma vez
 
