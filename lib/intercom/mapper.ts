@@ -1,5 +1,6 @@
 import { icFetch } from "./client";
-import { getBotAdminIds } from "./admins";
+import { getResolvedAdmins } from "./admins";
+import { getTeamsById } from "./teams";
 import * as cache from "./cache";
 import { computeAlertLevel } from "@/lib/monitor/severity";
 import { MAX_AGE_MINUTES } from "@/lib/monitor/constants";
@@ -60,7 +61,10 @@ async function resolveHumanAdminReplyAt(
 
 export async function fetchAndMapIntercomConversations(now: number): Promise<Conversation[]> {
   const workspaceId = process.env.INTERCOM_WORKSPACE_ID;
-  const botIds = await getBotAdminIds();
+  const [{ botIds, namesById: adminsById }, teamsById] = await Promise.all([
+    getResolvedAdmins(),
+    getTeamsById(),
+  ]);
 
   const search = await icFetch<{ conversations: ICConversation[] }>(
     "POST",
@@ -111,8 +115,8 @@ export async function fetchAndMapIntercomConversations(now: number): Promise<Con
       name: contactName(c),
       level,
       minutosParada,
-      attendantName: "Sem atendente",
-      departmentName: "Intercom",
+      attendantName: c.admin_assignee_id ? (adminsById.get(c.admin_assignee_id) ?? "Atendente") : "Sem atendente",
+      departmentName: c.team_assignee_id ? (teamsById.get(c.team_assignee_id) ?? "Intercom") : "Intercom",
       departmentColor: IC_COLOR,
       lastMessage: buildLastMessage(c),
       externalUrl: workspaceId

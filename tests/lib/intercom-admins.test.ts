@@ -13,12 +13,18 @@ beforeEach(async () => {
 });
 
 describe("getBotAdminIds", () => {
-  it("returns env-configured IDs as a Set, no API call", async () => {
+  it("env-configured bot IDs win over name-match when both present", async () => {
     process.env.INTERCOM_BOT_ADMIN_IDS = "123,456";
+    server.use(http.get("https://api.intercom.io/admins", () =>
+      HttpResponse.json({ admins: [
+        { id: "7", type: "admin", name: "Fin" },
+        { id: "123", type: "admin", name: "Ana" },
+      ]})));
     const { getBotAdminIds } = await import("@/lib/intercom/admins");
     const ids = await getBotAdminIds();
     expect(ids.has("123")).toBe(true);
     expect(ids.has("456")).toBe(true);
+    expect(ids.has("7")).toBe(false);
   });
 
   it("falls back to /admins name match when env is empty", async () => {

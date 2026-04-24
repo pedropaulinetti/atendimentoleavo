@@ -13,6 +13,7 @@ afterAll(() => server.close());
 beforeEach(async () => {
   (await import("@/lib/intercom/admins")).__resetCache();
   (await import("@/lib/intercom/cache")).__reset();
+  (await import("@/lib/intercom/teams")).__resetCache();
   delete process.env.INTERCOM_BOT_ADMIN_IDS;
 });
 
@@ -171,5 +172,41 @@ describe("fetchAndMapIntercomConversations", () => {
     const { fetchAndMapIntercomConversations } = await import("@/lib/intercom/mapper");
     const out = await fetchAndMapIntercomConversations(now);
     expect(out).toHaveLength(0);
+  });
+
+  it("enriches attendantName with admin name when assigned", async () => {
+    const now = 10_000_000;
+    server.use(
+      http.get("https://api.intercom.io/admins", () => HttpResponse.json({ admins: [
+        { id: "77", type: "admin", name: "Ana" },
+      ]})),
+      http.get("https://api.intercom.io/teams", () => HttpResponse.json({ teams: [] })),
+      http.post("https://api.intercom.io/conversations/search", () =>
+        HttpResponse.json({ conversations: [icConv({
+          admin_assignee_id: "77",
+          statistics: { last_contact_reply_at: (now - 15 * 60_000) / 1000, last_admin_reply_at: null },
+        })] })),
+    );
+    const { fetchAndMapIntercomConversations } = await import("@/lib/intercom/mapper");
+    const out = await fetchAndMapIntercomConversations(now);
+    expect(out[0].attendantName).toBe("Ana");
+  });
+
+  it("enriches departmentName with team name when assigned", async () => {
+    const now = 10_000_000;
+    server.use(
+      http.get("https://api.intercom.io/admins", () => HttpResponse.json({ admins: [] })),
+      http.get("https://api.intercom.io/teams", () => HttpResponse.json({ teams: [
+        { id: "t1", name: "Suporte" },
+      ]})),
+      http.post("https://api.intercom.io/conversations/search", () =>
+        HttpResponse.json({ conversations: [icConv({
+          team_assignee_id: "t1",
+          statistics: { last_contact_reply_at: (now - 15 * 60_000) / 1000, last_admin_reply_at: null },
+        })] })),
+    );
+    const { fetchAndMapIntercomConversations } = await import("@/lib/intercom/mapper");
+    const out = await fetchAndMapIntercomConversations(now);
+    expect(out[0].departmentName).toBe("Suporte");
   });
 });
