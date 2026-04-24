@@ -175,7 +175,16 @@ return NextResponse.json({
 
 Aggregate stats (`computeStats`) operate on the unified shape, so Intercom conversations with `departmentName = team name` naturally join the `byDepartment` breakdown without special cases.
 
-**Note on refactor**: the current handler constructs Data Crazy conversations inline. That enrichment logic moves into `lib/datacrazy/mapper.ts` (`mapDCtoConversation`) so the route handler becomes a thin merger.
+**Note on refactor**: the current handler constructs Data Crazy conversations inline. That enrichment logic moves into `lib/datacrazy/mapper.ts` so the route handler becomes a thin merger. Note that DC enrichment is **not a pure mapping**: today the route does an N+1 `GET /conversations/{id}/messages` per alert conversation to build the `lastMessage` preview, plus attachment-type fallbacks (`"Áudio"`, `"Imagem"`, etc.). The new structure is:
+
+- `lib/datacrazy/mapper.ts` exports `fetchAndMapDCConversations()` — async, performs the search + N+1 message fetches, returns `Conversation[]`. The name makes the side effects explicit.
+- Same pattern on the IC side: `lib/intercom/mapper.ts` exports `fetchAndMapIntercomConversations()` (also async, does the search + conditional parts fetches described above).
+
+Both return `Conversation[]` directly; the route handler just merges and sorts.
+
+**Severity thresholds — shared source of truth**: Intercom conversations reuse `computeAlertLevel` from `lib/monitor/severity.ts` by synthesizing its inputs from Intercom timestamps: `lastReceivedMessageDate = last_contact_reply_at`, `lastSendedMessageDate = lastHumanAdminReplyAt` (bot-filtered, may be null). This keeps the 3/10/30 min thresholds defined in one place — if product changes them tomorrow, both sources update together.
+
+**`MAX_AGE_MINUTES` cap applies to both sources**: the 72h cap (`lib/monitor/constants.ts` or continue inline at the route level) filters ancient abandoned conversations from Intercom too. Otherwise long-running open IC threads (which exist in some workspaces) would dominate the top of the list.
 
 ## UI changes
 
