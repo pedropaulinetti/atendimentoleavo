@@ -40,6 +40,11 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ...               # Só pra criar usuários (nunca 
 - `SUPABASE_URL` e `ANON_KEY`: dashboard Supabase → Project Settings → API
 - `SERVICE_ROLE_KEY`: mesma tela, **rotacione se vazar** — dá acesso total ao banco
 
+- `INTERCOM_ENABLED=true` liga a fonte Intercom no Monitor. Se `false` ou ausente, Intercom é ignorado silenciosamente.
+- `INTERCOM_TOKEN`: Access Token em Intercom → Settings → Developer Hub → seu app → Authentication.
+- `INTERCOM_WORKSPACE_ID`: app_id do workspace, usado pra montar os deep-links.
+- `INTERCOM_BOT_ADMIN_IDS`: opcional, lista separada por vírgula dos admin IDs que são bot/Fin. Se vazio, tenta detectar pelos nomes em `/admins`.
+
 ## Testes
 
 ```bash
